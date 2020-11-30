@@ -28,7 +28,12 @@ def get_args():
     parser.add_argument('--max-len', default=100, type=int, help='maximum length of generated sequence')
 
     # Add beam search arguments
-    parser.add_argument('--beam-size', default=5, type=int, help='number of hypotheses expanded in beam search')
+    parser.add_argument('--beam-size', default=6, type=int, help='number of hypotheses expanded in beam search')
+    parser.add_argument('--alpha', default=0.9, type=float, help='parameter defining how much the sentence length is taken into account')
+    parser.add_argument('--n_best', default=3, type=int, help='number of best translations to save')
+    parser.add_argument('--gamma', default=0.0, type=float, help='parameter to implement diverse beam search')
+
+
 
     return parser.parse_args()
 
@@ -70,6 +75,7 @@ def main(args):
 
     # Iterate over the test set
     all_hyps = {}
+    n_sents = []
     for i, sample in enumerate(progress_bar):
 
         # Create a beam search object or every input sentence in batch
@@ -114,9 +120,9 @@ def main(args):
                     mask = None
 
                 node = BeamSearchNode(searches[i], emb, lstm_out, final_hidden, final_cell,
-                                      mask, torch.cat((go_slice[i], next_word)), log_p, 1)
+                                      mask, torch.cat((go_slice[i], next_word)), log_p, 1, args.alpha, args.gamma)
                 # __QUESTION 3: Why do we add the node with a negative score?
-                searches[i].add(-node.eval(), node)
+                searches[i].add(-node.eval(0), node)
 
         # Start generating further tokens until max sentence length reached
         for _ in range(args.max_len-1):
@@ -168,15 +174,15 @@ def main(args):
                     if next_word[-1 ] == tgt_dict.eos_idx:
                         node = BeamSearchNode(search, node.emb, node.lstm_out, node.final_hidden,
                                               node.final_cell, node.mask, torch.cat((prev_words[i][0].view([1]),
-                                              next_word)), node.logp, node.length)
-                        search.add_final(-node.eval(), node)
+                                              next_word)), node.logp, node.length, args.alpha, args.gamma)
+                        search.add_final(-node.eval(j), node)
 
                     # Add the node to current nodes for next iteration
                     else:
                         node = BeamSearchNode(search, node.emb, node.lstm_out, node.final_hidden,
                                               node.final_cell, node.mask, torch.cat((prev_words[i][0].view([1]),
-                                              next_word)), node.logp + log_p, node.length + 1)
-                        search.add(-node.eval(), node)
+                                              next_word)), node.logp + log_p, node.length + 1, args.alpha, args.gamma)
+                        search.add(-node.eval(j), node)
 
             # __QUESTION 5: What happens internally when we prune our beams?
             # How do we know we always maintain the best sequences?
@@ -184,7 +190,9 @@ def main(args):
                 search.prune()
 
         # Segment into sentences
-        best_sents = torch.stack([search.get_best()[1].sequence[1:].cpu() for search in searches])
+        #best_sents = torch.stack([search.get_best(args.n_best)[1].sequence[1:].cpu() for search in searches])
+        #TASK 4
+        best_sents = torch.stack([sent[1].sequence[1:].cpu() for search in searches for sent in search.get_best(args.n_best)])
         decoded_batch = best_sents.numpy()
 
         output_sentences = [decoded_batch[row, :] for row in range(decoded_batch.shape[0])]
@@ -201,16 +209,25 @@ def main(args):
 
         # Convert arrays of indices into strings of words
         output_sentences = [tgt_dict.string(sent) for sent in output_sentences]
-
-        for ii, sent in enumerate(output_sentences):
-            all_hyps[int(sample['id'].data[ii])] = sent
+        
+        #TASK 4 
+        if args.n_best > 1:
+            n_sents.extend(output_sentences)
+        else:
+            for ii, sent in enumerate(output_sentences):
+                all_hyps[int(sample['id'].data[ii])] = sent
 
 
     # Write to file
     if args.output is not None:
         with open(args.output, 'w') as out_file:
-            for sent_id in range(len(all_hyps.keys())):
-                out_file.write(all_hyps[sent_id] + '\n')
+            if args.n_best > 1:
+                for sent in n_sents:
+                    out_file.write(sent + '\n')
+            else:
+                for sent_id in range(len(all_hyps.keys())):
+                    out_file.write(all_hyps[sent_id] + '\n')
+                
 
 
 if __name__ == '__main__':
