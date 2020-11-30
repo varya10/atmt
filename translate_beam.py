@@ -212,6 +212,7 @@ def main(args):
         
         #TASK 4 
         if args.n_best > 1:
+        #https://stackoverflow.com/questions/252703/what-is-the-difference-between-pythons-list-methods-append-and-extend
             n_sents.extend(output_sentences)
         else:
             for ii, sent in enumerate(output_sentences):
