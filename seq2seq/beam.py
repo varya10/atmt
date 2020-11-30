@@ -36,7 +36,7 @@ class BeamSearch(object):
             nodes.append((node[0], node[2]))
         return nodes
 
-    def get_best(self):
+    def get_best(self, n=3):
         """ Returns final node with the lowest negative log probability """
         # Merge EOS paths and those that were stopped by
         # max sequence length (still in nodes)
@@ -48,11 +48,15 @@ class BeamSearch(object):
         for _ in range(self.nodes.qsize()):
             node = self.nodes.get()
             merged.put(node)
+        #TASK 4:
+        n_best_list = []
+        for _ in range(n):
+            node = merged.get()
+            node = (node[0], node[2])
+            n_best_list.append(node)
 
-        node = merged.get()
-        node = (node[0], node[2])
-
-        return node
+        #return node
+        return n_best_list
 
     def prune(self):
         """ Removes all nodes but the beam_size best ones (lowest neg log prob) """
@@ -67,7 +71,7 @@ class BeamSearch(object):
 
 class BeamSearchNode(object):
     """ Defines a search node and stores values important for computation of beam search path"""
-    def __init__(self, search, emb, lstm_out, final_hidden, final_cell, mask, sequence, logProb, length):
+    def __init__(self, search, emb, lstm_out, final_hidden, final_cell, mask, sequence, logProb, length, alpha, gamma):
 
         # Attributes needed for computation of decoder states
         self.sequence = sequence
@@ -82,7 +86,18 @@ class BeamSearchNode(object):
         self.length = length
 
         self.search = search
+        self.alpha = alpha
+        self.gamma = gamma
 
-    def eval(self):
+    def eval(self, ranking):
         """ Returns score of sequence up to this node """
-        return self.logp
+        #TASK 3
+        #inspired by https://blog.ceshine.net/post/implementing-beam-search-part-2/
+        #except for that don't need len()
+        #modifier = ((((5 + self.length)) ** self.alpha) / ((5 + 1) ** self.alpha))
+        #return self.logp / modifier
+        
+        #TASK 4
+        #add gamma parameter, based on the formula from Li and Jurafsky
+        modifier = ((((5 + self.length)) ** self.alpha) / ((5 + 1) ** self.alpha))
+        return self.logp / modifier - self.gamma * ranking+1
